@@ -8,4 +8,8 @@
 
 - [Structured Reading Skill 要件定義 v0.2](docs/human/requirements-v0.2.md) — 合意済みの人間向け要件正本
 
+## Future concepts
+
+- [Perspective Lens Chat](docs/human/future-perspective-lens-chat.md) — ユーザーの視点からReading Atlasを再構成する将来構想。MVP v0.1には含まれません。
+
 今後、利用者向け文書は `docs/human/`、エージェント向けの技術設計・作業手順は `docs/agent/` に置きます。同じ正本を両方へ複製せず、必要な場合は相互にリンクします。
