@@ -2,11 +2,13 @@
 
 ページ写真から、全文テキストと意味構造を分離した「Reading Atlas」を生成し、線形な文章を読む際の認知負荷を下げるためのCodex Skillプロジェクトです。
 
-現在は要件定義段階です。実装と技術設計はまだ開始していません。
+要件定義とMVP v0.1の技術設計が完了しています。実装はまだ開始していません。
 
 ## Documentation
 
 - [Structured Reading Skill 要件定義 v0.2](docs/human/requirements-v0.2.md) — 合意済みの人間向け要件正本
+- [Technical Architecture v0.1](docs/agent/architecture-v0.1.md) — エージェント向け技術設計
+- [Implementation Plan v0.1](docs/agent/implementation-plan-v0.1.md) — エージェント向け実装・検証計画
 
 ## Future concepts
 
