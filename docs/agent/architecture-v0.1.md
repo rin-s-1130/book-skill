@@ -4,6 +4,7 @@
 
 - Status: implementation-ready design; code has not been started.
 - Product baseline: [human requirements v0.2](../human/requirements-v0.2.md).
+- Third-party boundary: [third-party adoption plan v0.1](third-party-adoption-v0.1.md).
 - Scope: MVP v0.1 only. Perspective Lens Chat remains outside this design.
 - Authority rule: the human requirements define product behavior. This document defines the technical realization and must be changed when an implementation decision changes.
 
@@ -17,40 +18,44 @@ The repository will be a standalone Codex Skill, with `SKILL.md` at its root. Th
 
 The project will initially remain a standalone Skill rather than a plugin. A plugin can be introduced later if public distribution or bundled connectors become a requirement.
 
-### 1.2 Codex orchestrates AI work; repository scripts own deterministic work
+### 1.2 Codex orchestrates AI work; repository code owns deterministic and machine-perception work
 
-The Skill will not call the OpenAI API directly and will not require a second API key. Codex supplies image understanding, semantic judgment, and subagent orchestration. Repository scripts perform operations that must be deterministic:
+The Skill will not call the OpenAI API directly and will not require a second API key. Codex supplies independent image understanding, semantic judgment, and subagent orchestration. Repository code performs deterministic work and invokes one pinned local RapidOCR/ONNX Runtime machine-perception sidecar:
 
 - image discovery, hashing, evidence copying, and preview creation;
+- Machine Raw OCR, layout hierarchy, line/token polygons, and recognition confidence;
+- deterministic alignment of Machine and Model Raw OCR;
 - stable ID generation;
 - schema and reference validation;
 - canonical merge operations;
 - report aggregation;
 - derived projection and Reading Atlas generation.
 
-This boundary avoids hiding model calls inside an opaque program while ensuring that mechanical integrity does not depend on free-form model output.
+This boundary avoids hiding model calls inside an opaque program while giving Luna an independent machine observation to disagree with. Third-party output is archived verbatim and normalized into repository-owned schemas; it never becomes an external canonical authority.
 
-### 1.3 Node.js is the sole project runtime
+### 1.3 Node.js is the core runtime; Python is an isolated OCR sidecar
 
-The implementation will target Node.js 22, matching the current host and allowing one language for the CLI, validation, rendering, and browser code.
+The implementation uses two pinned local runtimes with a narrow process boundary.
 
-- The exact runtime is declared in `.nvmrc` and `package.json#engines`.
-- Every runtime and development package is pinned exactly in `package.json` and `package-lock.json`.
-- Runtime packages are limited to image normalization and JSON Schema validation.
+- Node.js 22 owns the CLI, IDs, schemas, canonical merge, validation, projections, HTML bundling, and browser application. Its exact runtime and packages are declared in `.nvmrc`, `package.json`, and `package-lock.json`.
+- Python 3.13.15 owns only the RapidOCR adapter. Its runtime and complete transitive dependency set are declared in `.python-version`, `pyproject.toml`, and a hash-locked requirements file.
+- OCR model files are declared by name, source, license, and SHA-256 in `models.lock.json`; automatic model download is disabled during processing.
+- Cytoscape.js is bundled as the offline interactive renderer. It never owns canonical Graph data or layout semantics.
 - The generated Reading Atlas has no runtime package, network, CDN, font, or server dependency.
 - Browser behavior tests use a pinned Playwright development dependency.
 
-The implementation phase must check current official package documentation before selecting exact versions. No package is assumed to exist globally.
+The implementation phase must check current official package documentation before selecting exact versions. No package, Python module, native executable, or model file is assumed to exist globally. The full selection and license boundary is defined in the [third-party adoption plan](third-party-adoption-v0.1.md).
 
 ### 1.4 Canonical data is separate from work products and views
 
 Canonical layers are immutable or append-only wherever practical:
 
 1. Evidence inventory and copied image bytes.
-2. Raw OCR attempts.
+2. Machine and Model Raw OCR attempts, their archived vendor observation, and deterministic alignment.
 3. Reading Text plus append-only correction events.
 4. Semantic Spans.
 5. Knowledge Graph.
+6. Append-only provenance ledger.
 
 Everything under `views/` is derived and can be deleted and regenerated. Agent shards under `work/` are proposals, not canonical data.
 
@@ -64,9 +69,10 @@ Normal reading mode does not create image or thumbnail elements. Audit Mode crea
 
 The following are design decisions, not hidden implementation assumptions:
 
-- **OCR implementation:** GPT-5.6 Luna reads the page images directly. There is no Tesseract, cloud OCR service, or silent OCR fallback in MVP. The Raw OCR engine identity is the exact model ID, effort, agent ID, prompt/reference revision, and run timestamp.
+- **OCR implementation:** each logical page receives two independent observations. RapidOCR 3.9.2 with ONNX Runtime 1.29.0 uses PP-OCRv6 small detection/recognition through the Japanese route plus the bundled legacy PP-OCRv4 orientation classifier. These exact hash-locked components produce Machine Raw OCR with word/character boxes and confidence. Luna `max`, without seeing that result, produces Model Raw OCR. Deterministic alignment exposes every disagreement before Reading Text is selected. There is no cloud OCR service or silent OCR-engine fallback.
 - **AI execution host:** the Skill runs in a Codex environment that provides local image inspection, subagent creation, explicit child-model selection, and explicit reasoning-effort selection. Missing capability is a preflight failure.
 - **Required models:** both `gpt-5.6-luna` and `gpt-5.6-sol` must be selectable. Neither Terra nor a same-model effort variation substitutes for the two-model requirement.
+- **Required machine perception:** Python 3.13.15 and the exact RapidOCR, ONNX Runtime, PP-OCRv6 detector/recognizer, and PP-OCRv4 orientation-classifier artifacts from the [adoption baseline](third-party-adoption-v0.1.md) must be present. Missing or mismatched artifacts stop preflight; Luna-only processing is not a fallback.
 - **Semantic canonicality:** Semantic Spans are a canonical traceability index over a frozen Reading Text revision. The Knowledge Graph is the sole canonical semantic interpretation. Concept, role, argument, relation, and visualization files are projections from the Graph.
 - **MVP presentation:** single-file offline HTML and static SVG are the selected MVP implementation, not a permanent product-level technology constraint.
 - **Editing and correction:** the browser is read-only with respect to canonical data. In MVP, a user requests a correction through Codex and identifies the page/block/span or quoted text. The Root creates a revision request, runs the normal OCR/review/merge path for the affected range, appends correction provenance, invalidates downstream hashes, and rebuilds affected structure and views. There is no browser edit form or public API in MVP.
@@ -77,6 +83,7 @@ The following are design decisions, not hidden implementation assumptions:
 - **Storage:** preflight estimates exact evidence-copy bytes plus preview/work overhead and verifies that the destination is writable. If available capacity cannot be established or is insufficient, it stops before copying.
 - **Local viewing:** generation does not require a browser. The normative browser target is the Chromium revision installed by the pinned Playwright lockfile, using `file://`, JavaScript, CSS Grid, inline SVG, and local storage. Equivalent or newer Chromium-based Chrome/Edge releases are supported; Firefox and Safari are not MVP acceptance targets. Browser incompatibility does not authorize an online fallback.
 - **Independent context:** `fresh` and `blind` mean a newly spawned subagent thread with no inherited conversation turns, a unique agent ID, and only the assignment, required schema/reference instructions, Evidence region, and allowed canonical context. It receives no previous candidate, worker reasoning, suspected-error list, or unneeded shards. The run ledger records the empty-fork policy and supplied artifact IDs. If the host cannot provide this isolation, blind review and independent audit cannot be claimed.
+- **Third-party licensing:** only components listed as adopted in the [third-party adoption plan](third-party-adoption-v0.1.md) enter the runtime. Lockfiles, model hashes/licenses, and `THIRD_PARTY_NOTICES.md` are completion requirements.
 - **Evidence identity across runs:** `content_sha256` identifies identical bytes. `evidence_id` identifies one input occurrence using the exact ID algorithm in Section 8. Moving the whole input root while preserving normalized relative paths preserves IDs; renaming or moving a file within the root creates a new occurrence ID while retaining the same content identity. Resume uses the copied Evidence and stored IDs and never silently rebinds a changed source tree.
 
 ## 2. System context
@@ -90,6 +97,7 @@ Deterministic inventory and evidence copy
         v
 Codex Root Orchestrator
   |-- Page Reconstruction Agent
+  |-- Local RapidOCR/ONNX Runtime Sidecar
   |-- OCR Workers
   |-- Independent OCR Reviewers
   |-- Structural Analysis Workers
@@ -110,9 +118,13 @@ Codex subagents are the execution substrate, not a hidden application service. T
 
 - **Reading Atlas:** the generated family of synchronized views over full Reading Text and the Knowledge Graph; it is not a summary.
 - **Evidence:** the exact copied bytes and metadata of each input image occurrence.
-- **Raw OCR:** an immutable model reading attempt before correction.
+- **Machine Raw OCR:** the immutable, normalized result of the pinned local RapidOCR run, including detected polygons, word/character geometry, text, and confidence.
+- **Model Raw OCR:** an immutable Luna image-reading attempt made without access to Machine Raw OCR.
+- **Raw OCR:** the canonical collection of immutable Machine and Model attempts plus their deterministic alignment; it is never the corrected Reading Text.
 - **Reading Text:** the source-faithful, human-readable transcription selected from Raw OCR plus explicit correction events.
 - **Source:** the complete evidence-backed chain for a claim: an exact Reading Text range in a named Source revision, its Raw OCR provenance, and its Evidence image/region. A **Source Reference** is the Reading Text revision, page ID, block ID, and code-point range that resolves through that chain.
+- **Layout element:** a repository-owned page, block, line, or token record with reading order and an Evidence-relative polygon/bounding box when available.
+- **Provenance ledger:** the append-only Entity/Activity/Agent derivation record that links scripts, models, humans, revisions, audits, and generated artifacts.
 - **Semantic Span:** one semantic unit linked to exact character ranges in a frozen Reading Text revision.
 - **Knowledge Graph:** the canonical semantic nodes, relations, hierarchies, concepts, and arguments grounded in Semantic Spans.
 - **Canonical/正本:** validated data that later stages depend on and that no worker may overwrite directly.
@@ -146,11 +158,16 @@ book-skill/
 |   `-- output-contract.md
 |-- scripts/
 |   `-- book-atlas.mjs
+|-- python/
+|   |-- book_atlas_ocr/
+|   `-- tests/
 |-- src/
 |   |-- cli/
 |   |-- evidence/
 |   |-- ids/
 |   |-- merge/
+|   |-- ocr-alignment/
+|   |-- provenance/
 |   |-- schema/
 |   |-- validation/
 |   |-- projections/
@@ -160,11 +177,15 @@ book-skill/
 |   |-- run-manifest.schema.json
 |   |-- evidence-inventory.schema.json
 |   |-- page-index.schema.json
-|   |-- raw-ocr.schema.json
+|   |-- machine-raw-ocr.schema.json
+|   |-- model-raw-ocr.schema.json
+|   |-- ocr-alignment.schema.json
+|   |-- layout-elements.schema.json
 |   |-- reading-text.schema.json
 |   |-- correction-log.schema.json
 |   |-- semantic-spans.schema.json
 |   |-- knowledge-graph.schema.json
+|   |-- provenance-ledger.schema.json
 |   `-- agent-shard.schema.json
 |-- assets/
 |   `-- reader/
@@ -181,6 +202,11 @@ book-skill/
 |   `-- agent/
 |-- package.json
 |-- package-lock.json
+|-- pyproject.toml
+|-- requirements.lock
+|-- models.lock.json
+|-- THIRD_PARTY_NOTICES.md
+|-- .python-version
 `-- .nvmrc
 ```
 
@@ -200,11 +226,18 @@ book/
 |   `-- page-index.json
 |-- source/
 |   |-- raw-ocr/
+|   |   |-- machine/
+|   |   |-- model/
+|   |   |-- alignment/
+|   |   `-- vendor/
+|   |-- layout-elements/
 |   |-- reading-text/
 |   `-- correction-history/
 |-- structure/
 |   |-- semantic-spans.json
 |   `-- knowledge-graph.json
+|-- provenance/
+|   `-- ledger.jsonl
 |-- work/
 |   `-- runs/<run-id>/
 |       |-- run-manifest.json
@@ -213,11 +246,13 @@ book/
 |       `-- decisions/
 |-- views/
 |   |-- atlas.html
+|   |-- THIRD_PARTY_NOTICES.txt
 |   `-- static/
 |       |-- atlas.svg
 |       |-- position.svg
 |       |-- logic.svg
-|       `-- concepts.svg
+|       |-- concepts.svg
+|       `-- provenance.provn
 `-- report/
     |-- integrity.json
     `-- integrity.html
@@ -236,9 +271,25 @@ Before any output bundle is created, the Root Orchestrator verifies:
 - explicit child model and reasoning-effort selection are available;
 - at least two distinct suitable model IDs are available;
 - the destination is new, or the user explicitly requested resume;
-- Node and repository packages match the lockfile.
+- Node and repository packages match `package-lock.json`;
+- Python and sidecar packages match `.python-version` and `requirements.lock`;
+- every OCR model file matches `models.lock.json`, and its license is recorded;
+- the RapidOCR adapter loads only the exact fixed API/configuration and verifies the outer wheel plus inner model hashes without automatic download or fallback.
 
-If multi-agent or model diversity requirements fail, processing stops before ingest. The Skill must report the missing capability and must not silently substitute a single agent or one-model topology.
+If multi-agent, model diversity, machine-perception, lock, or license requirements fail, processing stops before ingest. The Skill must report the missing capability and must not silently substitute a single agent, one-model topology, or another OCR engine.
+
+Host capability is verified, not assumed. Milestone 1 creates `test/fixtures/capability/luna-vision.svg`, containing one black line `CODEX VISION OK 2048` on white, and uses pinned Sharp to deterministically build `test/fixtures/capability/luna-vision.png`; its dimensions and SHA-256 are fixed in `test/fixtures/capability/manifest.json`.
+
+Before creating a book bundle, Root validates that PNG against the fixture manifest and runs four fresh no-history probe assignments:
+
+| Probe | Input | Required result |
+|---|---|---|
+| `luna_xhigh` | nonce in text assignment | exact JSON `{"probe":"luna_xhigh","nonce":"<nonce>","ok":true}` |
+| `luna_max_vision` | the PNG plus instruction to read its single line | exact JSON `{"probe":"luna_max_vision","text":"CODEX VISION OK 2048","ok":true}` |
+| `sol_medium` | nonce in text assignment | exact JSON `{"probe":"sol_medium","nonce":"<nonce>","ok":true}` |
+| `sol_xhigh` | nonce in text assignment | exact JSON `{"probe":"sol_xhigh","nonce":"<nonce>","ok":true}` |
+
+Every spawn uses `fork_turns="none"` and the exact role model/effort. The successful spawn call with those explicit parameters is the host capability record; rejection, substitution reported by the host, tool absence, timeout, malformed JSON, nonce mismatch, or image-text mismatch fails preflight. An OS-temporary `preflight-run.json` records probe ID, role, requested model/effort, `fork_turns`, tool-call ID, fixture/assignment hash, start/end time, status, and response SHA-256. After successful bundle initialization, those metadata records—not prompts or responses—are copied into `run-manifest.json`; on failure, the temporary report path is returned for diagnosis. Probe content is never copied into the book bundle. Failure of any probe stops before ingest.
 
 ### Stage 1 — Evidence ingest
 
@@ -270,19 +321,54 @@ Logical pages are divided into contiguous ownership ranges. Each OCR Worker rece
 
 The deterministic assignment builder creates batches using the Section 1.6 limits after page reconstruction. It never splits a logical page, never gives ownership overlap, records the one-page read-only context on each side when present, and queues excess batches rather than enlarging them because concurrency is low.
 
-For every page, the worker emits:
+Stage 3 has four ordered sub-stages for every logical page.
 
-- an immutable first OCR attempt;
-- layout blocks and confidence;
-- a source-faithful Reading Text candidate;
-- uncertainty ranges and candidates;
-- proposed corrections that explicitly link before and after text.
+#### 3A. Machine observation
 
-Regions with confidence below `0.85`, any explicit uncertainty marker, every correction, suspicious negation/numeral/proper noun/comparison/logical operator, and every cross-page discontinuity are sent to a fresh blind reviewer using Luna at `max`. The reviewer receives the evidence region and task question, but not the primary worker's proposed reading. Sol is used only when independent Luna readings remain materially inconsistent or the ambiguity changes the document's logic. The Root records the selected result and correction reason.
+The deterministic Node CLI invokes the pinned Python RapidOCR sidecar on the normalized logical-page crop. The sidecar writes only its assignment path and emits:
+
+- complete schema-versioned serialization of the unmodified `RapidOCROutput` plus its hash;
+- Machine Raw OCR page/block/line/token records;
+- original recognized strings and token confidence without filtering;
+- reading order, layout roles, polygons/bounding boxes, table cells, and figure/caption records when available;
+- exact Python, RapidOCR, ONNX Runtime, embedded PP-OCR model, adapter, and configuration identities.
+
+The adapter never corrects or rewrites machine text. A sidecar error becomes an explicit stage error; it does not cause Luna-only continuation.
+
+#### 3B. Independent Model Raw OCR
+
+The Primary OCR Worker uses Luna `max` to inspect the same Evidence region without receiving Machine Raw OCR, vendor JSON, alignment, or machine confidence. It emits immutable Model Raw OCR, layout-block candidates, confidence, uncertainty ranges, and a source-faithful Reading Text candidate.
+
+#### 3C. Deterministic alignment and review
+
+The CLI aligns Machine and Model OCR at block/line/token and Unicode code-point levels without changing either attempt. A reconciliation item is the smallest contiguous aligned range sharing one Evidence region and one difference class. Items are never merged across block, line, table-cell, formula, code, footnote, or page boundaries.
+
+Comparison-only normalization converts CRLF/CR to LF. For prose, it may also classify a difference consisting only of photographic line wrapping as `layout_only`; it does not normalize Unicode, spelling, punctuation, digits, or other whitespace. A `layout_only` prose item is selected mechanically according to the Reading Text reflow rule. The same difference in poetry, code, formulas, tables, lists, or any ambiguous layout is not automatic.
+
+Every content insertion, deletion, substitution, reorder, unmatched polygon, meaningful-layout disagreement, confidence below `0.85`, explicit uncertainty, correction, or cross-page discontinuity requires blind review. A versioned risk detector also marks an item `meaning_critical` when it contains a numeral/date, mathematical or logical symbol, negation, comparison, quantifier, proper-name candidate, citation, heading/section number, footnote marker, quotation boundary, table cell, formula, or code token. Its Japanese/English lexicons and symbol sets are repository data covered by tests and the run's instruction revision.
+
+A fresh blind Luna `max` reviewer receives only the Evidence region and narrow transcription/layout question. Selection then follows this fixed table:
+
+| Machine / Primary Luna / Blind Luna result | `meaning_critical` | Decision |
+|---|---:|---|
+| Machine and Primary are exact and no review trigger exists | no | Select the shared text; no Blind Luna call |
+| all three are exact | either | Select the shared text |
+| exactly two are exact | no | Select the exact majority |
+| exactly two are exact | yes | Sol `medium` adjudication |
+| all three differ, no exact majority, or any required region is unmatched | either | Sol `medium` adjudication |
+| evidence remains unreadable after Sol | either | Select an explicit candidate/illegible/outside-photo marker; never guess |
+
+An "exact" comparison uses canonical code points after only the comparison normalization above. "Material disagreement" means any table row that routes to Sol; the phrase is not an additional subjective test. Sol receives the Evidence region, the three immutable candidates, confidence/provenance, and the risk flags. It may select a candidate, or emit a new reading only when it identifies the exact Evidence region and confidence; otherwise it must select explicit uncertainty. The Root records the selected reading, rejected alternatives, rule/table row, rationale, and provenance activity.
+
+#### 3D. Reading Text selection
+
+The Root invokes deterministic merge with the decisions. Each reconciliation item has exactly one decision record and exactly one resulting Reading Text range. That decision contains zero or one correction edge for each Machine, Primary Luna, and Blind Luna slice whose exact text differs from the selected text. Correction edges are keyed by `(reconciliation_item_id, source_attempt_id)` and cannot be duplicated or merged with another item. Alignment describes differences; correction edges describe selection; the provenance ledger describes who/what generated the decision.
+
+Final Reading Text keeps ordered block/line/token correspondence where available and explicit uncertainty where no reading is justified. A model-only character or range must still reference an explicit Evidence polygon/region and review decision.
 
 The workflow continues with explicit uncertainty markers when no reading can be justified. It never requires the user to inspect an image in order to obtain the text and structural output.
 
-Raw OCR is never rewritten. Reading Text is frozen for the structural-analysis revision. A later Reading Text change creates a new source revision and marks all dependent Semantic Spans and Graph views stale until rebuilt.
+Machine and Model Raw OCR and vendor JSON are never rewritten. Reading Text is frozen for the structural-analysis revision. A later Reading Text change creates a new Source revision, append-only provenance, and invalidation records for dependent Semantic Spans, Graph elements, and views before they are rebuilt.
 
 ### Stage 4 — Local structural analysis
 
@@ -317,12 +403,14 @@ The deterministic CLI checks every record without model judgment:
 
 1. Evidence bytes still match their SHA-256 hashes.
 2. Schemas, stable IDs, page orders, ownership ranges, and revision hashes are valid and unique.
-3. Every in-scope logical page has Raw OCR and Reading Text or an explicit unreadable marker.
+3. Every in-scope logical page has hash-valid vendor JSON, Machine Raw OCR, Model Raw OCR, reconciliation output, and Reading Text or an explicit failed/unreadable record.
 4. Every Reading Text change has a continuous correction chain.
 5. Every Semantic Span resolves to valid character offsets in the current Reading Text revision.
-6. Every Graph node, relation, hierarchy link, concept sense, and argument step resolves through a Span to Source and Evidence.
-7. No required model, effort, assignment, conflict decision, or agent result is absent from the run ledger.
-8. Derived views match the current canonical hash and normal reader mode does not preload Evidence images.
+6. Every Machine layout element has valid containment, order, polygon bounds, vendor provenance, and model/configuration identity; every model-only correction has an Evidence region and decision.
+7. Every Graph node, relation, hierarchy link, concept sense, and argument step resolves through a Span, Reading Text, Raw OCR alignment, and Evidence.
+8. Every canonical/generated entity has a valid provenance generation/derivation chain and no append-only history was deleted.
+9. No required model, effort, assignment, conflict decision, OCR artifact, package/model lock, license record, or agent result is absent from the run ledger.
+10. Derived views match the current canonical hash, bundled third-party code matches the lock/notice, and normal reader mode does not preload Evidence images or make network requests.
 
 Mechanical failure blocks semantic audit promotion and rendering, but the report still records all discoverable failures.
 
@@ -330,14 +418,14 @@ Mechanical failure blocks semantic audit promotion and rendering, but the report
 
 A fresh Luna `max` Integrity Auditor is read-only and receives canonical data, Evidence, assignments, and unresolved-decision records, but not the workers' reasoning or the Root's suspected-error list. It performs these concrete passes:
 
-1. **Page fidelity:** re-inspect every logical page against its Reading Text, with exact attention to headings, paragraph boundaries, omissions, emphasis, footnotes, tables, figures, formulas, poetry/code line breaks, and explicit uncertainty markers.
-2. **High-risk OCR:** re-read every correction, low-confidence range, illegible marker, negation, numeral, proper noun, comparison term, and logical operator. Confirm that uncertain text was not silently promoted to certain text.
+1. **Page fidelity:** re-inspect every logical page against Machine Raw OCR, Model Raw OCR, reconciliation output, and Reading Text, with exact attention to headings, paragraph boundaries, omissions, emphasis, footnotes, tables, figures, formulas, poetry/code line breaks, and explicit uncertainty markers.
+2. **High-risk OCR:** re-read every machine/model disagreement, unmatched token/polygon, correction, low-confidence range, illegible marker, negation, numeral, proper noun, comparison term, and logical operator. Confirm that machine/model uncertainty was not silently promoted to certain text.
 3. **Boundary continuity:** compare every adjacent page boundary and every worker-range boundary for missing clauses, duplicated text, detached footnotes, and false section breaks.
-4. **Source grounding:** inspect every AI node and relation against its Source Spans; reject unsupported paraphrases, reversed edge direction, invented connections, and claims stronger than the cited text.
+4. **Source grounding:** inspect every AI node and relation against its Source Spans and the underlying Reading Text/Raw OCR/Evidence path; reject unsupported paraphrases, reversed edge direction, invented connections, and claims stronger than the cited text.
 5. **Speaker and epistemic status:** verify author/quoted-person/editor/AI attribution and whether `explicit`, `strongly_inferred`, `inferred`, or `uncertain` matches the evidence.
 6. **Structural coherence:** check role classification, separate document/semantic hierarchies, concept sense identity and evolution, argument step order, objection/response pairing, and long-distance references.
 7. **Scope honesty:** verify that excerpt or unknown input is not described as a complete book and that unresolved missing-page candidates remain visible.
-8. **Conflict closure:** verify that every worker disagreement and blind-review result has a recorded decision, rationale, deciding agent, model, and effort.
+8. **Conflict closure:** verify that every machine/model disagreement, worker disagreement, and blind-review result has a recorded decision, rationale, deciding agent, model, effort, and provenance activity.
 9. **Reading experience:** verify that each required view exposes the intended Source links, uncertainty, confidence, and focus information without substituting a summary for full text.
 
 Semantic audit is one Luna `max` logical agent. It persists page-fidelity/high-risk-OCR findings in the same page batches used by OCR, then performs one global pass over all boundary, Graph, scope, conflict, and reading-experience findings. Persisted audit batches are checkpoints, not separate auditors, and do not independently close findings.
@@ -370,6 +458,7 @@ The current default profile uses Luna as the primary workhorse and Sol for bound
 
 | Role | Current preferred model | Effort | Reason |
 |---|---|---:|---|
+| Machine OCR Sidecar | RapidOCR 3.9.2 / ONNX Runtime 1.29.0 / PP-OCRv6 small det+rec Japanese route / PP-OCRv4 orientation classifier | none | Produces reproducible word/character geometry, text, and confidence without AI correction |
 | Root Orchestrator | Prefer `gpt-5.6-sol`; otherwise delegate semantic decisions to the listed Sol agents | medium | Scheduling, assignment, ledger updates, and validated merge coordination are bounded orchestration tasks |
 | Page Reconstruction | `gpt-5.6-luna` | xhigh | Visual inventory and page ordering require careful analysis but do not require exhaustive character-level transcription |
 | Primary OCR Worker | `gpt-5.6-luna` | max | Luna supports image input; `max` is the default because transcription errors propagate into every downstream layer |
@@ -381,7 +470,7 @@ The current default profile uses Luna as the primary workhorse and Sol for bound
 | Audit Finding Triage | `gpt-5.6-sol` | medium | Classifies a bounded finding and chooses the owning rework stage without rebuilding global meaning |
 | Complex Audit Adjudicator | `gpt-5.6-sol` | xhigh | Resolves findings that change whole-document arguments, cross-section concepts, or scope claims |
 
-Mechanical work does not use a model. Luna `xhigh` is for bounded visual/structural analysis; Luna `max` is for exact transcription and exhaustive audit. Sol `medium` is for a bounded, well-evidenced decision; Sol `xhigh` is for cross-section or whole-document synthesis. Production runs do not use another effort for these roles without a reviewed design change.
+Machine OCR and other mechanical work do not use a Codex model. Luna `xhigh` is for bounded visual/structural analysis; Luna `max` is for independent exact transcription and exhaustive audit. Sol `medium` is for a bounded, well-evidenced disagreement; Sol `xhigh` is for cross-section or whole-document synthesis. Production runs do not use another effort or OCR engine for these roles without a reviewed design change.
 
 Runtime rules:
 
@@ -407,25 +496,28 @@ A logical page references one evidence ID and a normalized rectangular region. I
 
 One evidence image may map to two logical pages. Reordering pages changes only `reading_order`; it does not change page IDs.
 
-### 7.3 Raw OCR
+### 7.3 Layout elements and Raw OCR
 
-A raw OCR record is append-only and contains:
+Machine Raw OCR contains a repository-owned hierarchy of page, block, line, and token Layout Elements. Each record contains:
 
-- attempt ID, page ID, region, model/agent identity, and timestamp;
-- exact model ID, reasoning effort, and run/instruction revision;
-- original recognized text;
-- ordered layout blocks;
-- block and attempt confidence;
-- detected layout roles such as heading, paragraph, footnote, caption, figure, table, code, formula, or poetry;
-- legible figure/table labels and a source-grounded non-text description when applicable.
+- attempt and element ID, parent ID, page ID, element kind, and reading order;
+- original machine-recognized string and confidence;
+- Evidence and logical-page polygons/bounding boxes in normalized integer-millionth coordinates;
+- detected layout role such as heading, paragraph, line, token, footnote, caption, figure, table/cell, code, formula, or poetry;
+- vendor record ID and archived vendor JSON/hash;
+- exact Python, adapter, RapidOCR, ONNX Runtime, recognizer/model, configuration, and timestamp.
 
-The first attempt is always retained even when a later attempt is better.
+Model Raw OCR contains the immutable Luna attempt ID, page/Evidence region, original recognized text, ordered block candidates, model-reported confidence/uncertainty, exact model ID, reasoning effort, agent ID, instruction/reference revision, and timestamp.
+
+The OCR Alignment record contains immutable links between Machine tokens/lines and Model code-point ranges, alignment operation (`match`, `substitute`, `insert`, `delete`, `reorder`, or `unmatched_region`), scores, and reconciliation-item IDs. It never changes either source attempt.
+
+All attempts and the first vendor observation are retained even when a later reading is better.
 
 ### 7.4 Reading Text and correction history
 
-Reading Text stores ordered blocks. Each block contains plain Unicode text, its source OCR block references, meaningful layout type, formatting ranges, and uncertainty ranges. Semantic source ranges always address this plain text, not rendered markup.
+Reading Text stores ordered blocks, lines, and token/range links. Each block contains plain Unicode text, Machine/Model Raw OCR and Alignment references, meaningful layout type, formatting ranges, Evidence polygons, and uncertainty ranges. Semantic Source ranges always address this plain text, not rendered markup. Machine-aligned characters can resolve to token polygons; model-only characters resolve to the explicit Evidence region recorded by their reconciliation decision.
 
-Correction events are append-only and include source attempt, target block/range, before text, after text, reason, confidence, deciding agent, and review provenance. A text difference without a matching correction chain is a validation error.
+Correction events are append-only and include every differing source attempt, target block/range, before text, after text, rejected alternatives, reason, confidence, deciding agent, and provenance activity. A text difference without a matching reconciliation/correction chain is a validation error.
 
 Uncertainty kinds distinguish `candidate`, `illegible`, and `outside_photo`. Low confidence never forces the reader to open evidence.
 
@@ -446,7 +538,20 @@ The graph is the sole canonical semantic structure. It contains:
 
 Every AI-generated node, edge, hierarchy link, concept sense, and argument step has at least one source span ID, `epistemic_status`, numeric confidence in `[0,1]`, and speaker attribution (`author`, `quoted_person`, `editor`, or `ai`).
 
+Each Graph element also preserves processing history: `created_in_run`, `asserted_in_source_revision`, optional `invalidated_in_run`, optional `invalidated_in_source_revision`, and optional `supersedes`. When the authored text changes a concept or claim over document position, `source_valid_from_span` and `source_valid_to_span` record that authored scope separately. Processing revisions are never displayed as authored historical dates.
+
 Concept, argument, role, and relation files used by views are generated projections. Agents never edit them separately.
+
+### 7.7 Provenance ledger
+
+The append-only ledger uses a repository profile of W3C PROV:
+
+- Entity: Evidence, vendor observation, Raw OCR attempt, Alignment, Reading Text revision, correction, Span set, Graph revision, audit finding/decision, report, and view;
+- Activity: ingest, machine OCR, model OCR, align, reconcile, correct, merge, audit, validate, and render;
+- Agent: human requester, Codex agent/model configuration, deterministic Node command, and pinned Python sidecar;
+- Relations: `used`, `wasGeneratedBy`, `wasDerivedFrom`, `wasAttributedTo`, `wasAssociatedWith`, and `wasInvalidatedBy`.
+
+Every generated canonical or derived Entity has exactly one generation activity and one or more upstream derivations where applicable. The ledger is canonical; `provenance.provn` is a regenerated interoperability projection.
 
 ## 8. Stable IDs and revisions
 
@@ -474,12 +579,16 @@ Canonical IDs are:
 - Book ID: `hash_id("book", "book-v1", sort(evidence_ids))`.
 - Evidence ID: `hash_id("evidence", "evidence-v1", [content_sha256, normalized_relative_path])`. A path change creates a new occurrence ID; `content_sha256` remains the cross-run byte-identity key.
 - Logical Page ID: `hash_id("page", "logical-page-v1", [evidence_id, region_key])`.
-- Raw OCR attempt ID: `hash_id("ocr", "raw-ocr-v1", [page_id, agent_id, attempt_ordinal, raw_text_sha256])`.
-- Raw OCR block ID: `hash_id("ocr-block", "raw-ocr-block-v1", [ocr_attempt_id, block_ordinal])`.
+- Vendor observation ID: `hash_id("vendor-ocr", "rapidocr-observation-v1", [page_id, vendor_json_sha256, locked_configuration_id])`.
+- Machine Raw OCR attempt ID: `hash_id("ocr-machine", "machine-raw-ocr-v1", [page_id, vendor_observation_id, exact_machine_text_sha256])`.
+- Model Raw OCR attempt ID: `hash_id("ocr-model", "model-raw-ocr-v1", [page_id, agent_id, attempt_ordinal, raw_text_sha256])`.
+- Layout Element ID: `hash_id("layout", "layout-element-v1", [machine_attempt_id, element_kind, parent_id_or_null, element_ordinal])`.
+- OCR Alignment ID: `hash_id("ocr-align", "ocr-alignment-v1", [machine_attempt_id, model_attempt_id, aligner_version])`.
 - Source revision: `hash_id("source-revision", "source-revision-v1", [parent_revision_or_null, ordered_reading_content_hashes, ordered_correction_event_hashes])`.
 - Reading Text block ID: `hash_id("text-block", "reading-block-v1", [source_revision, page_id, block_ordinal])`.
 - Semantic Span ID: `hash_id("span", "semantic-span-v1", [source_revision, ordered_source_reference_tuples])`.
 - Graph node/edge ID: `hash_id("graph", "graph-element-v1", [element_type, ordered_source_span_ids, local_discriminator])`.
+- Provenance record ID: `hash_id("prov", "provenance-record-v1", [record_kind, subject_id, activity_or_relation_identity])`.
 
 `region_key` is independent of reading order and mutable crop coordinates: `full` for one page occupying the image, `left`/`right` for a horizontal spread, `top`/`bottom` for a vertical split, or `region-NN` for any other layout. Other regions are sorted by `(top, left, height, width)` in the original unrotated Evidence coordinate system and numbered from `01`. Coordinates use a top-left origin and integer millionths in `[0,1000000]`; a region covers `[x,x+width) × [y,y+height)`, requires positive width/height, and must remain inside that range. Coordinate refinements do not change a Page ID while its `region_key` is unchanged. Changing between full/split layouts creates new logical Page IDs and a supersession record.
 
@@ -492,11 +601,13 @@ Revisions are explicit. Changing an upstream canonical hash marks downstream art
 | Area | Writer |
 |---|---|
 | `evidence/images`, initial inventory | deterministic CLI |
+| RapidOCR vendor JSON and Machine OCR proposal | pinned Python sidecar in its assigned work path |
 | `work/.../shards/<agent-id>` | that one assigned agent only |
 | `work/.../decisions` | Root Orchestrator only |
 | canonical Evidence/Page Index | Root invoking deterministic CLI |
 | canonical Source/Reading Text | Root invoking deterministic CLI |
 | canonical Knowledge Graph | Root invoking deterministic CLI |
+| canonical provenance ledger | append-only deterministic CLI |
 | Integrity Auditor findings | returned read-only result; Root records it |
 | views and mechanical report | deterministic CLI |
 
@@ -505,6 +616,8 @@ Workers receive an assignment file listing owned IDs, readable context IDs, outp
 ## 10. Reading Atlas design
 
 The viewer has one shared selection state, so all views navigate to the same node/span without duplicating semantic data.
+
+Cytoscape.js renders interactive Graph canvases from repository-generated elements and positions. All canonical views use Cytoscape's `preset` layout; force-directed or automatic semantic layouts are forbidden. Cytoscape owns only rendering and interaction events. The projection JSON, shared selection state, Source resolver, accessibility tree, and deterministic coordinates remain repository-owned.
 
 ### Atlas View
 
@@ -517,6 +630,8 @@ Shows breadcrumb, document tree, current topic, current question, and overall pr
 ### Logic View
 
 Uses deterministic layered lanes for question, premise, evidence/example, inference, conclusion, objection, and response. It supports one-step Argument Playback.
+
+Its support/attack and premise/conclusion presentation follows the clarity of Argdown argument maps, but the Knowledge Graph—not Argdown text—is authoritative.
 
 ### Concept View
 
@@ -534,6 +649,7 @@ Shows every Reading Text block in order, page boundaries, uncertainties, footnot
 - Semantic Lens toggles role, concept, and uncertainty highlights.
 - The working-memory shelf pins current question, claim, concepts, premises, objections, and user-selected items in browser-local state.
 - Audit Mode is a deliberate toggle and is the only route that loads evidence images.
+- Audit Mode can traverse Graph history and provenance activities, including invalidated prior interpretations, machine/model OCR disagreement, and the exact decision that selected Reading Text.
 
 Color is never the only carrier of meaning. Shape, line style, label, legend, keyboard focus, and a text alternative accompany every graph.
 
@@ -566,6 +682,8 @@ The thin entrypoint `scripts/book-atlas.mjs` exposes bounded commands:
 - `status`: report current stage, completed IDs, and remaining IDs;
 - `validate-shard`: validate an agent proposal without canonical writes;
 - `apply-pages`: apply a Root page-reconstruction decision;
+- `machine-ocr`: invoke the locked RapidOCR sidecar for assigned logical pages and validate/archive its output;
+- `align-ocr`: align immutable Machine and Model attempts and emit reconciliation items;
 - `apply-ocr`: merge owned OCR shards and correction decisions;
 - `apply-structure`: merge local/global structure decisions;
 - `begin-revision`: create an explicit correction revision and affected-range assignment from a Root-authored request;
@@ -588,15 +706,18 @@ The report includes every metric required by the human baseline plus:
 - stale derived artifact count;
 - exact validation errors with locations;
 - agent ID, role, model, effort, assignment, and completion status;
-- conflict and blind-review decision ledger.
+- conflict and blind-review decision ledger;
+- Machine/Model OCR agreement and disagreement counts, unmatched Layout Elements, and adjudication counts;
+- exact Python/RapidOCR/ONNX Runtime/model lock identities and license-verification status;
+- provenance entities/activities/agents, broken provenance relations, and invalidated Graph element counts.
 
-`complete` is mechanically impossible while any in-scope page is pending, any required reference is broken, any correction is untracked, any AI node lacks a source span, or model diversity is absent.
+`complete` is mechanically impossible while any in-scope page is pending, any required reference/provenance link is broken, any correction or machine/model disagreement is untracked, any AI node lacks a source span, model diversity is absent, or required package/model/license locks are unverified.
 
 CLI exit codes are stable: `0` for processing-complete bundles (including disclosed legibility issues), `1` for invalid bundles, and `2` for partial/interrupted bundles. Legibility never changes an invalid or partial bundle into complete and is always shown beside processing status.
 
 ## 13. Security, privacy, and failure behavior
 
-- No network request is made by generated artifacts.
+- No network request is made by generated artifacts or normal reading runs. Package/model acquisition is a separate explicit setup operation that verifies repository locks before installation.
 - The Skill does not browse or use external sources unless the user separately requests an isolated extension layer.
 - No credential is accepted into, copied to, or embedded in a bundle.
 - Input images are read-only from the workflow's perspective.
@@ -604,6 +725,9 @@ CLI exit codes are stable: `0` for processing-complete bundles (including disclo
 - Resume requires a matching book ID and schema version.
 - Interrupted stages preserve validated canonical work and leave proposals in the run directory.
 - Partial processing is reported with exact completed and remaining page IDs.
+- The Python sidecar is invoked without a shell, receives only resolved in-bundle paths and read-only Evidence, and cannot write canonical locations.
+- Missing/mismatched OCR packages or models fail preflight; the system does not continue with Luna-only OCR.
+- Bundled third-party code and model artifacts require lockfile and license-notice coverage.
 
 ## 14. Deployment and replacement
 
@@ -618,4 +742,6 @@ Replacing or removing the installed prototype is a separate deployment step afte
 - Perspective Lens Chat.
 - Editing canonical source layers from the browser.
 - Generic force-directed layouts that imply unsupported relationships.
-- Silent single-agent, same-model, OCR-engine, or online fallbacks.
+- Graphiti/LightRAG/GraphRAG as canonical Graph stores or hidden LLM pipelines.
+- Docling, PaddleOCR, Tesseract, EasyOCR, or another OCR engine as a runtime fallback alongside the selected RapidOCR/ONNX Runtime path.
+- Silent single-agent, same-model, OCR-engine, package, model-file, or online fallbacks.

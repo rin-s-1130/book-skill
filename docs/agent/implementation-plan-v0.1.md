@@ -6,6 +6,7 @@
 - Implementation: not started.
 - Product source: [human requirements v0.2](../human/requirements-v0.2.md).
 - Technical source: [architecture v0.1](architecture-v0.1.md).
+- Third-party source: [third-party adoption plan v0.1](third-party-adoption-v0.1.md).
 
 The milestones below are vertical slices with observable exit conditions. A milestone is not complete merely because files exist.
 
@@ -16,15 +17,21 @@ Deliver:
 - root `SKILL.md` with discriminating trigger boundaries;
 - `agents/openai.yaml` with implicit invocation enabled;
 - progressive-disclosure reference files;
-- Node runtime and exact package lock;
+- pinned Node and isolated Python runtime declarations;
+- exact Node/Python dependency locks, OCR model lock, and third-party notices;
 - CLI entrypoint and safe path utilities;
+- shell-free Node-to-Python sidecar protocol;
 - unit-test and browser-test commands.
 
 Exit conditions:
 
 - the official Skill validator passes;
 - a clean install from the lockfile succeeds;
+- offline preflight verifies Python 3.13.15, RapidOCR 3.9.2, ONNX Runtime 1.29.0, PP-OCRv6 detector/recognizer, and PP-OCRv4 orientation-classifier hashes/licenses without downloading during a run;
+- the deterministic capability PNG/manifest is valid and fresh probes pass their exact JSON/nonce/image expectations for Luna `xhigh`, Luna `max`, Sol `medium`, and Sol `xhigh`;
 - tests run without undeclared host-global packages;
+- dependency/license checks reject AGPL and license-unknown runtime artifacts;
+- installed Node/Python inventories and esbuild inputs are fully covered by locks, `license-policy.json`, model records, and third-party notices;
 - Skill instructions route each stage to only its relevant reference.
 
 ## Milestone 2 — Evidence and page reconstruction substrate
@@ -55,8 +62,13 @@ Exit conditions:
 
 Deliver:
 
-- Raw OCR, Reading Text, and correction-log schemas;
+- Machine Raw OCR, Model Raw OCR, Layout Element, Alignment, Reading Text, correction, and provenance schemas;
+- RapidOCR sidecar with complete `RapidOCROutput` vendor JSON archival;
+- page/block/line/token hierarchy with polygons, confidence, and reading order;
 - OCR worker assignment and shard contracts;
+- blind Luna Model OCR that cannot see Machine OCR;
+- deterministic Machine/Model Unicode alignment and reconciliation items;
+- decision-table implementation for exact agreement, low-risk majority, meaning-critical escalation, three-way disagreement, and explicit uncertainty;
 - blind-review contract for low-confidence regions;
 - immutable raw attempts;
 - append-only correction validation;
@@ -68,12 +80,21 @@ Deliver:
 Exit conditions:
 
 - a changed OCR reading cannot erase the first attempt;
+- RapidOCR vendor output, Machine Raw OCR, and Model Raw OCR remain separately immutable and hash-verifiable;
+- low-confidence machine tokens remain present rather than being filtered;
+- every machine/model mismatch produces an alignment/reconciliation record;
+- every reconciliation item has one decision and at most one correction edge per source attempt;
+- `meaning_critical` fixtures always route to Sol even when two readings agree;
+- whitespace-only prose reflow is automatic while poetry/code/formula/table whitespace is reviewed;
+- every model-only correction resolves to an explicit Evidence region;
 - a Reading Text difference without a correction event fails validation;
 - `candidate`, `illegible`, and `outside_photo` remain distinct;
 - meaningful layout survives while photographic line wraps are removed;
 - every non-duplicate in-scope page has text or an explicit illegibility marker;
 - no image is required to read the normal Reading Text output.
 - Unicode code-point offsets round-trip correctly through Node validation and browser DOM selection for BMP, supplementary, and combining characters.
+- the Japanese OCR qualification fixture passes with the exact locked engine/model configuration and no known meaning-changing error reaches final Reading Text;
+- sidecar failure blocks the stage instead of switching OCR engines or continuing Luna-only.
 
 ## Milestone 4 — Semantic structure and orchestration
 
@@ -83,6 +104,8 @@ Deliver:
 - required role, relation, epistemic, confidence, and speaker enums;
 - separate document and semantic hierarchies;
 - concept sense/evolution model;
+- append-only W3C-PROV-profile Entity/Activity/Agent ledger;
+- revision-aware Graph creation/invalidation/supersession and authored-span validity;
 - argument step model;
 - structural worker and global-agent shard contracts;
 - conflict-resolution decision format;
@@ -94,6 +117,9 @@ Deliver:
 Exit conditions:
 
 - every AI node and relation resolves to exact Reading Text ranges;
+- every Graph element resolves through Span, Reading Text, OCR Alignment, Machine/Model attempts, and Evidence;
+- every generated canonical/derived entity has a complete provenance generation and derivation path;
+- invalidated Graph elements remain auditable but disappear from active projections;
 - a stale range fails after the Reading Text revision changes;
 - unsupported AI nodes and broken graph references fail validation;
 - no two workers can merge ownership of the same canonical range;
@@ -120,6 +146,9 @@ Deliver:
 - browser-local working-memory shelf;
 - explicit Audit Mode;
 - applicable adaptive visualizations;
+- Cytoscape.js rendering with repository-owned preset positions and subgraph selection;
+- argument support/attack lanes informed by Argdown semantics;
+- Audit Mode provenance and invalidated-revision traversal;
 - deterministic static SVG exports;
 - accessible labels, keyboard operation, legends, and non-color encodings.
 
@@ -129,6 +158,8 @@ Exit conditions:
 - normal mode contains no visible or loaded evidence image;
 - selecting a graph node reaches exact text and selecting text reveals graph nodes;
 - Focus Mode does not render the entire graph;
+- Cytoscape receives only the selected projection and never computes semantic positions;
+- interactive graphs have an equivalent keyboard-operable DOM text/table representation;
 - the five required views work at narrow and desktop viewport sizes;
 - adaptive views appear only for supported source relations;
 - generated views can be deleted and rebuilt without changing canonical data.
@@ -143,6 +174,7 @@ Deliver:
 - HTML integrity report;
 - full-page fidelity, high-risk OCR, boundary, grounding, speaker/status, structure, scope, conflict, and reading-experience audit evidence;
 - unit, contract, corruption, interruption, and browser tests;
+- dependency, model-lock, license, vendor-adapter, provenance, and OCR-alignment tests;
 - a small synthetic photographed-page fixture with known expected structure;
 - an independent end-to-end Skill evaluation in an isolated temporary directory;
 - a requirements-to-test evidence record.
@@ -155,6 +187,8 @@ Exit conditions:
 - the evaluator can use the Skill from a realistic user request without hidden setup knowledge;
 - a partial run is never reported complete;
 - no generated artifact requires the source images in normal reading mode.
+- normal runs and generated artifacts complete with network access denied;
+- bundled Cytoscape and all shipped artifacts match package locks and third-party notices;
 - every in-scope logical page and every Graph node/relation appears in the semantic audit coverage ledger;
 - affected audit passes rerun after correction and preserve the previous finding history.
 
@@ -202,7 +236,7 @@ This milestone changes user-level installed files and is intentionally separate 
 
 ### Unit tests
 
-Use Node's built-in test runner for pure functions: IDs, paths, hashing, ordering, offsets, correction chains, graph references, report counts, layout selection, and safe HTML data escaping.
+Use Node's built-in test runner for pure functions: IDs, paths, hashing, ordering, Unicode OCR alignment, offsets, correction chains, provenance, graph references/revisions, report counts, preset layout selection, and safe HTML data escaping. Use Python's declared test dependency for the isolated RapidOCR adapter and vendor-schema fixtures.
 
 ### Contract tests
 
@@ -226,9 +260,15 @@ At minimum, automated tests deliberately introduce:
 - a page pointing to an unknown Evidence ID;
 - an invalid confidence value;
 - a Reading Text edit without correction history;
+- missing or hash-mismatched vendor JSON/model artifact;
+- filtered low-confidence Machine token;
+- Machine/Model text disagreement without a reconciliation item;
+- Layout Element polygon outside its logical page;
+- model-only text without an Evidence region;
 - a source range beyond block length;
 - a Semantic Span on an old source revision;
 - a Graph node without Source Spans;
+- a Graph element missing provenance or carrying contradictory active revision bounds;
 - an edge pointing to a missing node;
 - an overlapping worker ownership assignment;
 - an unrecorded agent model;
@@ -239,6 +279,7 @@ At minimum, automated tests deliberately introduce:
 - a blind-review assignment containing a prior candidate or inherited conversation turn;
 - a batch over its stage cap or with more than one neighboring context page;
 - a generated view with a stale canonical hash;
+- a Cytoscape view using a non-preset semantic layout or remote import;
 - a pending page in a purported complete run.
 
 Every case must produce a stable machine-readable error and a nonzero strict-validation exit code.
@@ -249,6 +290,8 @@ Every case must produce a stable machine-readable error and a nonzero strict-val
 - Do not add compatibility output for its Markdown bundle.
 - Do not allow workers to write canonical files.
 - Do not weaken validation to make a fixture pass; correct the model, merger, or fixture.
-- Do not add an external OCR or online fallback without a new product decision.
+- Use only the locked RapidOCR 3.9.2 / ONNX Runtime 1.29.0 / bundled PP-OCRv6 det+rec / PP-OCRv4 orientation-classifier machine path; do not add a second OCR engine or Luna-only fallback.
+- Preserve third-party vendor output verbatim, but normalize all canonical data into repository-owned schemas.
+- Do not copy or add AGPL/licence-unknown code, models, schemas, or assets.
 - Do not implement Perspective Lens Chat in MVP code paths.
 - Keep human documentation in Japanese under `docs/human/` and agent documentation in English under `docs/agent/`.

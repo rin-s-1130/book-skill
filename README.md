@@ -9,6 +9,7 @@
 - [Structured Reading Skill 要件定義 v0.2](docs/human/requirements-v0.2.md) — 合意済みの人間向け要件正本
 - [Technical Architecture v0.1](docs/agent/architecture-v0.1.md) — エージェント向け技術設計
 - [Implementation Plan v0.1](docs/agent/implementation-plan-v0.1.md) — エージェント向け実装・検証計画
+- [Third-party Adoption Plan v0.1](docs/agent/third-party-adoption-v0.1.md) — OSS採用範囲・ライセンス境界
 
 ## Future concepts
 
